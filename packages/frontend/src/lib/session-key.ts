@@ -57,7 +57,7 @@ export const createAndSerializeSessionKey = async (
   const sessionKeyKernelAccount = await createKernelAccount(publicClient as any, {
     entryPoint,
     plugins: {
-      sudo: ecdsaValidator,
+      sudo: ecdsaValidator as any,
       regular: permissionPlugin,
     },
     kernelVersion,

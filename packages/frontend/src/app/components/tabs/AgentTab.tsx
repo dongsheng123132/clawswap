@@ -82,7 +82,7 @@ export default function AgentTab() {
       const msg = (ev.msg ?? ev.text ?? JSON.stringify(ev)) as string;
       const type =
         ev.type === 'trade' ? 'buy' : ev.type === 'error' ? 'skip' : ev.type === 'skip' ? 'skip' : 'info';
-      const txHash = ev.type === 'trade' && (ev as { trade?: { txHash?: string } }).trade?.txHash;
+      const txHash = ev.type === 'trade' ? (ev as { trade?: { txHash?: string } }).trade?.txHash : undefined;
       if (ev.type === 'instruct') addLog(`指令: ${msg}`, 'info');
       else addLog(msg, type as 'buy' | 'sell' | 'skip' | 'info', txHash);
     });
