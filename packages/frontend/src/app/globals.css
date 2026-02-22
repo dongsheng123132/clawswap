@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #000;
+  --card: #18181B;
+  --accent: #7C3AED;
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --radius-card: 24px;
+  --radius-button: 16px;
+  --radius-input: 12px;
+}
+
+body {
+  color: #fff;
+  background: var(--background);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

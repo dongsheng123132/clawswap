@@ -1,0 +1,15 @@
+node_modules
+.turbo
+dist
+.next
+out
+.env
+.DS_Store
+contracts/broadcast
+contracts/cache
+contracts/out
+*.db
+packages/server/prisma/*.db
+.env.local
+# Forge deps (run forge install in packages/contracts)
+packages/contracts/lib/

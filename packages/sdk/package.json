@@ -1,0 +1,21 @@
+{
+  "name": "@openclaw/sdk",
+  "version": "0.1.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "lint": "eslint src/"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@x402/evm": "^2.4.0",
+    "@x402/fetch": "^2.4.0",
+    "viem": "^2.46.2"
+  }
+}

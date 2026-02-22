@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  privyUserId        String   @unique
+  email              String?
+  twitterHandle      String?
+  smartWalletAddress String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  sessions AgentSession[]
+  trades   Trade[]
+}
+
+model AgentSession {
+  id                   String    @id @default(cuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+  serializedSessionKey String
+  privateKeyEncrypted String?
+  agentAddress         String?
+  status               String    @default("active")
+  strategyType         String?
+  strategyConfig       String?
+  validUntil           DateTime
+  createdAt            DateTime  @default(now())
+  revokedAt            DateTime?
+}
+
+model Trade {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  strategy  String
+  tokenIn   String
+  tokenOut  String
+  amountIn  String
+  amountOut String
+  txHash    String
+  status    String
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+model ApiCallLog {
+  id         String   @id @default(cuid())
+  endpoint   String
+  paidAmount String?
+  createdAt  DateTime @default(now())
+}
