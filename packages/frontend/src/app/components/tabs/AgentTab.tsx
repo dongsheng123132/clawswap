@@ -42,7 +42,6 @@ export default function AgentTab() {
   const userId = user?.id;
   const { address, authorizeAgent, revokeAgent } = useSmartWallet();
   const { running: serverRunning, refresh: refreshStatus } = useAgent(userId);
-  const { events: streamEvents } = useAgentStream(userId);
   const { stats, refresh: refreshStats } = useAgentStats(userId);
   const { info: agentWallet } = useAgentWallet();
 
@@ -50,6 +49,8 @@ export default function AgentTab() {
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyId>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [starting, setStarting] = useState(false);
+
+  const { events: streamEvents } = useAgentStream(userId, isRunning);
 
   // DCA form state
   const [dcaToken, setDcaToken] = useState('MON');

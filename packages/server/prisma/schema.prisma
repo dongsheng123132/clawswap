@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -24,12 +24,12 @@ model AgentSession {
   id                   String    @id @default(cuid())
   userId               String
   user                 User      @relation(fields: [userId], references: [id])
-  serializedSessionKey String
-  privateKeyEncrypted String?
+  serializedSessionKey String    @db.Text
+  privateKeyEncrypted String?   @db.Text
   agentAddress         String?
   status               String    @default("active")
   strategyType         String?
-  strategyConfig       String?
+  strategyConfig       String?   @db.Text
   validUntil           DateTime
   createdAt            DateTime  @default(now())
   revokedAt            DateTime?
@@ -46,7 +46,7 @@ model Trade {
   amountOut String
   txHash    String
   status    String
-  reason    String?
+  reason    String?  @db.Text
   createdAt DateTime @default(now())
 }
 
@@ -55,4 +55,14 @@ model ApiCallLog {
   endpoint   String
   paidAmount String?
   createdAt  DateTime @default(now())
+}
+
+model AgentEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  data      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

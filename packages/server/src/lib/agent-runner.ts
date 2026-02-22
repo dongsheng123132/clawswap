@@ -37,6 +37,10 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 // ===== Main Loop =====
 
 export function startAgentRunner(pollIntervalMs: number = 15000) {
+  if (process.env.VERCEL) {
+    console.log('[AgentRunner] Running on Vercel — using Cron Job instead of setInterval');
+    return;
+  }
   if (intervalId) return;
   console.log('[AgentRunner] Starting with poll interval', pollIntervalMs, 'ms');
   intervalId = setInterval(runCycle, pollIntervalMs);

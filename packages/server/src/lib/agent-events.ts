@@ -1,6 +1,8 @@
+import { prisma } from './db';
+
 /**
  * In-memory event bus for Agent SSE streams.
- * Maps userId -> Set of (data: string) => void callbacks.
+ * Maps userId (privyUserId) -> Set of (data: string) => void callbacks.
  */
 const userStreams = new Map<string, Set<(data: string) => void>>();
 
@@ -13,11 +15,26 @@ export function subscribeAgentStream(userId: string, send: (data: string) => voi
   };
 }
 
-export function emitAgentEvent(userId: string, event: Record<string, unknown>): void {
+export function emitAgentEvent(privyUserId: string, event: Record<string, unknown>): void {
   const data = JSON.stringify(event);
-  userStreams.get(userId)?.forEach((send) => {
+  userStreams.get(privyUserId)?.forEach((send) => {
     try {
       send(data);
     } catch (_) {}
   });
+
+  // Persist to DB for Vercel polling (fire-and-forget)
+  prisma.user
+    .findUnique({ where: { privyUserId } })
+    .then((user) => {
+      if (!user) return;
+      return prisma.agentEvent.create({
+        data: {
+          userId: user.id,
+          type: (event.type as string) || 'event',
+          data,
+        },
+      });
+    })
+    .catch((e) => console.error('[AgentEvents] DB write failed:', e));
 }
