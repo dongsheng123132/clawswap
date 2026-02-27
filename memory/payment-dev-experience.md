@@ -1,97 +1,108 @@
-# x402 Payment Grid — 开发经验总结
+# x402 Payment Integration — 开发经验总结
 
 ## 1. 项目背景
 
-在 Monad Testnet 上实现一个 3x3 Grid 支付测试工具，验证三种支付方式：
-- **USDC** — ERC20 直接转账
-- **MON** — 原生代币转账
-- **x402** — 基于 USDC 转账的 x402 协议模拟
+在 Monad Testnet 上实现真正的 x402 协议支付测试。通过 3x3 Grid 提供 3 种支付方式：
+- **USDC** — ERC20 直接转账（链上验证）
+- **MON** — 原生代币转账（链上验证）
+- **x402** — 真正的 x402 协议流程（EIP-712 签名 → facilitator 结算）
 
-核心目标：测试 x402 支付在 Monad 上的可行性，Grid 是交互载体。
-
-## 2. 架构设计
+## 2. x402 协议核心流程
 
 ```
-Frontend (GridTab)                    Server API
-┌──────────────┐                 ┌──────────────────┐
-│ 3x3 Grid     │ ──GET /grid──> │ 返回 9 个格子状态   │
-│ PaymentModal │                 │                   │
-│  - USDC      │ ──POST /grid── │ 链上验证 tx        │
-│  - MON       │   /purchase    │ 标记已购买          │
-│  - x402      │                │                   │
-└──────────────┘                 └──────────────────┘
+Client                          Server                     Facilitator
+  │                                │                           │
+  │── GET /x402-test ──────────>   │                           │
+  │                                │                           │
+  │<── 402 + PAYMENT-REQUIRED ──   │                           │
+  │   (price, network, payTo)      │                           │
+  │                                │                           │
+  │── signTypedData (EIP-712) ──>  │                           │
+  │                                │                           │
+  │── GET + PAYMENT-SIGNATURE ──>  │                           │
+  │                                │── verify(payload) ──────> │
+  │                                │<── { success: true } ──── │
+  │                                │── settle(payload) ──────> │
+  │                                │<── { tx: "0x..." } ────── │
+  │<── 200 + content ────────────  │                           │
 ```
 
-**关键决策**：
-- 不信任客户端 — 服务端通过 `getTransactionReceipt()` 链上验证
-- 收款地址固定为 deployer: `0x408E2fC4FCAF2D38a6C9dcF07C6457bdFb6e0250`
-- 定价: USDC 0.01 (6 decimals) / MON 0.001 (18 decimals)
+关键点：用户只需要**签名**（不是发交易），facilitator 负责链上结算。
 
-## 3. 数据库模型
+## 3. Monad x402 配置
 
-```prisma
-model GridCell {
-  id        String   @id @default(cuid())
-  index     Int      @unique          // 0-8
-  color     String   @default("#7C3AED")
-  label     String?
-  ownerId   String?                   // 买家地址
-  ownerAddr String?
-  price     String   @default("0.01")
-  payMethod String?                   // "USDC" | "MON" | "x402"
-  txHash    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-```
+| 配置项 | 值 |
+|--------|-----|
+| Network ID | `eip155:10143` |
+| USDC 地址 | `0x534b2f3A21130d7a60830c2Df862319e593943A3` |
+| Facilitator URL | `https://x402-facilitator.molandak.org` |
+| Scheme | `exact` |
+| 官方文档 | https://docs.monad.xyz/guides/x402-guide |
 
-Lazy init: 首次 GET 请求时自动创建 9 个空格子。
+## 4. 服务端实现（`@x402/next`）
 
-## 4. 链上验证逻辑
-
-### MON 支付验证
 ```typescript
-const tx = await publicClient.getTransaction({ hash: txHash });
-const toMatch = tx.to?.toLowerCase() === PAY_TO_ADDRESS.toLowerCase();
-const valueOk = tx.value >= MON_PRICE; // 0.001 MON
+// x402-server.ts — 初始化
+import { x402ResourceServer, HTTPFacilitatorClient } from '@x402/core/server';
+import { ExactEvmScheme } from '@x402/evm/exact/server';
+
+const facilitatorClient = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
+const monadScheme = new ExactEvmScheme();
+monadScheme.registerMoneyParser(async (amount, network) => {
+  if (network === 'eip155:10143') {
+    return { amount: Math.floor(amount * 1_000_000).toString(), asset: MONAD_USDC, extra: { name: 'USDC', version: '2' } };
+  }
+  return null;
+});
+export const x402Server = new x402ResourceServer(facilitatorClient);
+x402Server.register('eip155:10143', monadScheme);
+
+// route.ts — 用 withX402 包装
+import { withX402 } from '@x402/next';
+export const GET = withX402(handler, {
+  accepts: { scheme: 'exact', network: 'eip155:10143', payTo: PAY_TO, price: '$0.001' },
+}, x402Server);
 ```
 
-### USDC/x402 支付验证
-解析 ERC20 Transfer 事件日志：
+## 5. 客户端实现（`@x402/fetch`）
+
 ```typescript
-const transferLogs = receipt.logs.filter(
-  (log) => log.address.toLowerCase() === CONTRACTS.USDC.toLowerCase()
+import { x402Client, wrapFetchWithPayment } from '@x402/fetch';
+import { registerExactEvmScheme } from '@x402/evm/exact/client';
+import { toClientEvmSigner } from '@x402/evm';
+
+// 用 toClientEvmSigner 创建 signer（需要 publicClient 提供 readContract）
+const signer = toClientEvmSigner(
+  { address: account, signTypedData: (msg) => walletClient.signTypedData(msg) },
+  { readContract: (args) => publicClient.readContract(args) }
 );
-// decodeEventLog → 检查 to === PAY_TO_ADDRESS && value >= 0.01 USDC
+
+const client = new x402Client();
+registerExactEvmScheme(client, { signer });
+const x402Fetch = wrapFetchWithPayment(fetch, client);
+
+// 自动处理 402 → 签名 → 重试
+const response = await x402Fetch('/api/v1/x402-test');
 ```
-
-## 5. 前端钱包交互模式
-
-复用 SwapTab 的 Privy EOA 模式：
-```typescript
-await wallets[0].switchChain(10143);
-const provider = await wallets[0].getEthereumProvider();
-const walletClient = createWalletClient({ chain: monadTestnet, transport: custom(provider) });
-```
-
-- MON: `walletClient.sendTransaction({ to, value })`
-- USDC/x402: `walletClient.writeContract({ functionName: 'transfer', args: [to, amount] })`
 
 ## 6. 文件清单
 
-| 文件 | 类型 | 说明 |
+| 文件 | 操作 | 说明 |
 |------|------|------|
-| `packages/server/prisma/schema.prisma` | 修改 | 新增 GridCell model |
-| `packages/server/src/app/api/v1/grid/route.ts` | 新建 | GET 获取所有格子 |
-| `packages/server/src/app/api/v1/grid/purchase/route.ts` | 新建 | POST 购买 + 链上验证 |
-| `packages/frontend/src/hooks/useGrid.ts` | 新建 | Grid 数据 hook |
-| `packages/frontend/src/app/components/tabs/GridTab.tsx` | 新建 | 3x3 Grid + 支付弹窗 |
-| `packages/frontend/src/app/components/MainLayout.tsx` | 修改 | 添加 Grid tab |
+| `packages/server/src/lib/x402-server.ts` | 重写 | stub → 真正的 x402ResourceServer |
+| `packages/server/src/app/api/v1/x402-test/route.ts` | 新建 | withX402 保护的测试端点 |
+| `packages/server/src/app/api/v1/grid/purchase/route.ts` | 修改 | x402 方法跳过链上验证 |
+| `packages/server/src/app/api/v1/quote/route.ts` | 修改 | 移除旧 getX402 stub |
+| `packages/server/src/app/api/v1/swap/route.ts` | 修改 | 移除旧 getX402 stub |
+| `packages/frontend/src/app/components/tabs/GridTab.tsx` | 重写 | x402 按钮用真正的 x402 协议 |
+| `packages/frontend/src/hooks/useGrid.ts` | 不变 | Grid 数据 hook |
+| `packages/frontend/src/app/components/MainLayout.tsx` | 不变 | 已有 Grid tab |
 
-## 7. 踩坑记录 & 注意事项
+## 7. 踩坑记录
 
-1. **DATABASE_URL 在根目录 `.env`**：Prisma 在 `packages/server/` 下但没有自己的 `.env`，需要 `export` 根目录变量后才能 `db push`
-2. **x402 SDK 不可用**：`@x402/core` exports 不兼容，`x402-server.ts` 仍是 stub。Grid 的 x402 选项实际走 USDC transfer + 标记为 x402
-3. **合约地址不一致**：`packages/server/src/lib/monad.ts` 和 `packages/frontend/src/lib/chains.ts` 的地址可能是旧的（参考 CLAUDE.md），Grid 功能不依赖 Uniswap 合约，只用 USDC 地址
-4. **Neon PostgreSQL**：数据库是 Neon 托管的 PostgreSQL（非 SQLite），`prisma db push` 成功后自动 generate client
-5. **简化设计**：原计划 10x10 (100格) 太复杂，缩减为 3x3 (9格) MVP，聚焦支付测试核心功能
+1. **`@x402/next` peer dep 冲突**：要求 `next ^16.0.10`，项目用 `next 14.2.0`。实际 CJS import 可以绕过，运行时没问题。
+2. **`ClientEvmSigner` 需要 `readContract`**：不能只传 `address + signTypedData`，必须用 `toClientEvmSigner(signer, publicClient)` 来创建，publicClient 提供 `readContract` 能力。
+3. **MoneyParser 注册**：`ExactEvmScheme` 不知道 Monad USDC 地址，必须 `registerMoneyParser` 告诉它 `$0.001` 对应 `1000` (6 decimals)。
+4. **Facilitator 负责结算**：服务端不需要自己广播交易，facilitator 会在验证签名后结算到链上。
+5. **`getX402()` 旧 API 彻底废弃**：quote 和 swap routes 的旧 x402 validation 代码全部移除，用专门的 `/x402-test` 端点测试。
+6. **USDC 地址必须用 Monad 官方的**：`0x534b2f3A21130d7a60830c2Df862319e593943A3`（Circle 在 Monad 上部署的），不是 Uniswap 池里的旧测试 USDC。

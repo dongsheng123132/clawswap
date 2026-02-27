@@ -1,37 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getX402, PAY_TO_ADDRESS } from '@/lib/x402-server';
-import { CONTRACTS, getQuote, symbolToAddress, symbolToDecimals } from '@/lib/monad';
-import { prisma } from '@/lib/db';
+import { getQuote, symbolToAddress, symbolToDecimals } from '@/lib/monad';
 import { parseUnits, formatUnits } from 'viem';
 
 export const GET = async (req: NextRequest) => {
-  let x402;
-  try {
-    x402 = getX402();
-  } catch {
-    // x402 not configured — skip payment for now (dev mode)
-  }
-
-  if (x402) {
-    const paymentOptions = {
-      recipient: PAY_TO_ADDRESS,
-      amount: '0.0001',
-      token: CONTRACTS.USDC,
-      chainId: 10143,
-    };
-    const { isAuthorized, paymentError, headers } = await x402.validateRequest(req, paymentOptions);
-    if (!isAuthorized) {
-      return NextResponse.json(
-        { error: 'Payment Required', details: paymentError },
-        { status: 402, headers }
-      );
-    }
-    try {
-      await prisma.apiCallLog.create({
-        data: { endpoint: '/api/v1/quote', paidAmount: paymentOptions.amount },
-      });
-    } catch (_) {}
-  }
+  // x402 payment protection is handled by /api/v1/x402-test endpoint
+  // This endpoint is free to call for now
 
   const searchParams = req.nextUrl.searchParams;
   const tokenInSymbol = searchParams.get('tokenIn');

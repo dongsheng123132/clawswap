@@ -45,24 +45,25 @@ export const POST = async (req: NextRequest) => {
       return NextResponse.json({ error: 'Cell already purchased' }, { status: 409 });
     }
 
-    // Verify transaction on-chain
-    let receipt;
-    try {
-      receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
-    } catch {
-      return NextResponse.json(
-        { error: 'Transaction not found on-chain. Wait for confirmation and retry.' },
-        { status: 404 }
-      );
-    }
-
-    if (receipt.status !== 'success') {
-      return NextResponse.json({ error: 'Transaction reverted' }, { status: 400 });
-    }
-
     // Verify payment based on method
-    if (payMethod === 'MON') {
-      // For MON: verify native transfer via tx value
+    if (payMethod === 'x402') {
+      // x402 payments are verified by the x402-test endpoint via facilitator
+      // The txHash here is the settlement tx from the facilitator
+      // We trust it since withX402 already verified the payment
+    } else if (payMethod === 'MON') {
+      // For MON: verify native transfer on-chain
+      let receipt;
+      try {
+        receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+      } catch {
+        return NextResponse.json(
+          { error: 'Transaction not found on-chain. Wait for confirmation and retry.' },
+          { status: 404 }
+        );
+      }
+      if (receipt.status !== 'success') {
+        return NextResponse.json({ error: 'Transaction reverted' }, { status: 400 });
+      }
       const tx = await publicClient.getTransaction({ hash: txHash as `0x${string}` });
       const toMatch = tx.to?.toLowerCase() === PAY_TO_ADDRESS.toLowerCase();
       const valueOk = tx.value >= MON_PRICE;
@@ -73,7 +74,19 @@ export const POST = async (req: NextRequest) => {
         );
       }
     } else {
-      // USDC or x402: verify ERC20 Transfer event
+      // USDC: verify ERC20 Transfer event on-chain
+      let receipt;
+      try {
+        receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+      } catch {
+        return NextResponse.json(
+          { error: 'Transaction not found on-chain. Wait for confirmation and retry.' },
+          { status: 404 }
+        );
+      }
+      if (receipt.status !== 'success') {
+        return NextResponse.json({ error: 'Transaction reverted' }, { status: 400 });
+      }
       const transferLogs = receipt.logs.filter(
         (log) => log.address.toLowerCase() === CONTRACTS.USDC.toLowerCase()
       );

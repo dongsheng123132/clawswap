@@ -13,13 +13,16 @@ import {
 import { useWallets } from '@privy-io/react-auth';
 import { monadTestnet, CONTRACTS } from '@/lib/chains';
 import { useGrid, type GridCell } from '@/hooks/useGrid';
+import { getApiUrl } from '@/lib/api';
+import { x402Client, wrapFetchWithPayment } from '@x402/fetch';
+import { registerExactEvmScheme } from '@x402/evm/exact/client';
+import { toClientEvmSigner } from '@x402/evm';
 
 const PAY_TO_ADDRESS = '0x408E2fC4FCAF2D38a6C9dcF07C6457bdFb6e0250' as Address;
 const USDC_ADDR = CONTRACTS.USDC;
 
 const ERC20_ABI = parseAbi([
   'function transfer(address to, uint256 amount) returns (bool)',
-  'function approve(address spender, uint256 amount) returns (bool)',
 ]);
 
 type PayMethod = 'USDC' | 'MON' | 'x402';
@@ -41,7 +44,7 @@ export default function GridTab() {
   const eoaAddress = wallets[0]?.address as Address | undefined;
 
   const handleCellClick = (cell: GridCell) => {
-    if (cell.ownerId) return; // already owned
+    if (cell.ownerId) return;
     setSelected(cell);
     setStatus('idle');
     setErrorMsg('');
@@ -52,6 +55,81 @@ export default function GridTab() {
     setSelected(null);
     setStatus('idle');
     setErrorMsg('');
+  };
+
+  // x402 protocol payment flow
+  const handleX402Purchase = async (account: Address, walletClient: any, publicClient: any) => {
+    setStatus('sending');
+
+    // Create x402 signer using toClientEvmSigner (provides readContract via publicClient)
+    const signer = toClientEvmSigner(
+      {
+        address: account,
+        signTypedData: async (message: any) => {
+          return walletClient.signTypedData({
+            domain: message.domain,
+            types: message.types,
+            primaryType: message.primaryType,
+            message: message.message,
+          });
+        },
+      },
+      {
+        readContract: (args: any) => publicClient.readContract(args),
+      }
+    );
+
+    // Create x402 client and register EVM scheme
+    const client = new x402Client();
+    registerExactEvmScheme(client, { signer });
+
+    const x402Fetch = wrapFetchWithPayment(fetch, client);
+
+    setStatus('verifying');
+
+    // Call the x402-protected endpoint — payment is handled automatically
+    const response = await x402Fetch(getApiUrl('/api/v1/x402-test'), {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `x402 payment failed (${response.status})`);
+    }
+
+    const data = await response.json();
+
+    // Get settlement tx hash from response headers if available
+    const settleTx = response.headers.get('x-payment-transaction') || 'x402-settled';
+
+    return { txHash: settleTx, data };
+  };
+
+  // Direct transfer payment flow (USDC / MON)
+  const handleDirectPurchase = async (account: Address, walletClient: any, publicClient: any) => {
+    let txHash: `0x${string}`;
+
+    if (payMethod === 'MON') {
+      txHash = await walletClient.sendTransaction({
+        to: PAY_TO_ADDRESS,
+        value: parseUnits('0.001', 18),
+        account,
+        chain: monadTestnet,
+      });
+    } else {
+      txHash = await walletClient.writeContract({
+        address: USDC_ADDR,
+        abi: ERC20_ABI,
+        functionName: 'transfer',
+        args: [PAY_TO_ADDRESS, parseUnits('0.01', 6)],
+        account,
+      });
+    }
+
+    setStatus('verifying');
+    await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+    return txHash;
   };
 
   const handlePurchase = async () => {
@@ -73,33 +151,19 @@ export default function GridTab() {
       });
       const [account] = await walletClient.getAddresses();
 
-      let txHash: `0x${string}`;
+      const colorPick = CELL_COLORS[selected.index % CELL_COLORS.length];
+      let txHash: string;
 
-      if (payMethod === 'MON') {
-        // Native MON transfer: 0.001 MON
-        txHash = await walletClient.sendTransaction({
-          to: PAY_TO_ADDRESS,
-          value: parseUnits('0.001', 18),
-          account,
-          chain: monadTestnet,
-        });
+      if (payMethod === 'x402') {
+        // x402 protocol: sign EIP-712 message, facilitator settles
+        const result = await handleX402Purchase(account, walletClient, publicClient);
+        txHash = result.txHash;
       } else {
-        // USDC or x402: ERC20 transfer 0.01 USDC
-        txHash = await walletClient.writeContract({
-          address: USDC_ADDR,
-          abi: ERC20_ABI,
-          functionName: 'transfer',
-          args: [PAY_TO_ADDRESS, parseUnits('0.01', 6)],
-          account,
-        });
+        // Direct transfer: USDC or MON
+        txHash = await handleDirectPurchase(account, walletClient, publicClient);
       }
 
-      // Wait for confirmation
-      setStatus('verifying');
-      await publicClient.waitForTransactionReceipt({ hash: txHash });
-
-      // Tell server to verify and record
-      const colorPick = CELL_COLORS[selected.index % CELL_COLORS.length];
+      // Record purchase on server
       await purchaseCell({
         cellIndex: selected.index,
         payMethod,
@@ -118,7 +182,7 @@ export default function GridTab() {
     }
   };
 
-  const priceLabel = payMethod === 'MON' ? '0.001 MON' : '0.01 USDC';
+  const priceLabel = payMethod === 'MON' ? '0.001 MON' : payMethod === 'x402' ? '$0.001 (x402)' : '0.01 USDC';
 
   return (
     <div className="w-full">
@@ -129,7 +193,7 @@ export default function GridTab() {
           <span className="text-sm text-zinc-400">{owned}/{total} sold</span>
         </div>
         <p className="text-zinc-500 text-sm">
-          Click a cell to purchase it with USDC, MON, or x402 protocol. On-chain verified.
+          Test x402 payments on Monad. Click a cell to purchase with USDC, MON, or x402 protocol.
         </p>
       </div>
 
@@ -217,29 +281,42 @@ export default function GridTab() {
               </div>
               <div className="flex justify-between mb-1">
                 <span className="text-zinc-400">Method</span>
-                <span className="text-white">{payMethod === 'x402' ? 'x402 Protocol (USDC)' : payMethod}</span>
+                <span className="text-white">
+                  {payMethod === 'x402' ? 'x402 Protocol (EIP-712 Sign)' : payMethod === 'MON' ? 'Native Transfer' : 'ERC20 Transfer'}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-400">Recipient</span>
-                <span className="text-zinc-500 font-mono text-xs">{shortenAddr(PAY_TO_ADDRESS)}</span>
+                <span className="text-zinc-400">
+                  {payMethod === 'x402' ? 'Facilitator' : 'Recipient'}
+                </span>
+                <span className="text-zinc-500 font-mono text-xs">
+                  {payMethod === 'x402' ? 'molandak.org' : shortenAddr(PAY_TO_ADDRESS)}
+                </span>
               </div>
             </div>
+
+            {/* x402 protocol info */}
+            {payMethod === 'x402' && status === 'idle' && (
+              <div className="bg-violet-900/20 border border-violet-800/40 rounded-xl p-3 mb-4 text-xs text-violet-300">
+                x402 uses EIP-712 signature — you sign a message, the facilitator settles the payment on-chain. No gas needed from you.
+              </div>
+            )}
 
             {/* Status messages */}
             {status === 'sending' && (
               <div className="text-center py-3 text-sm text-yellow-400 animate-pulse">
-                Sending transaction...
+                {payMethod === 'x402' ? 'Requesting x402 payment...' : 'Sending transaction...'}
               </div>
             )}
             {status === 'verifying' && (
               <div className="text-center py-3 text-sm text-blue-400 animate-pulse">
-                Verifying on-chain...
+                {payMethod === 'x402' ? 'Signing & settling via facilitator...' : 'Verifying on-chain...'}
               </div>
             )}
             {status === 'done' && (
               <div className="text-center py-3">
                 <div className="text-green-400 font-medium mb-1">Purchase successful!</div>
-                {lastTx && (
+                {lastTx && lastTx !== 'x402-settled' && (
                   <a
                     href={`https://testnet.monadexplorer.com/tx/${lastTx}`}
                     target="_blank"
@@ -248,6 +325,9 @@ export default function GridTab() {
                   >
                     View on Explorer
                   </a>
+                )}
+                {lastTx === 'x402-settled' && (
+                  <span className="text-zinc-500 text-sm">Settled via x402 facilitator</span>
                 )}
               </div>
             )}
@@ -274,7 +354,7 @@ export default function GridTab() {
                 {!eoaAddress
                   ? 'Connect Wallet'
                   : status === 'sending'
-                  ? 'Sending...'
+                  ? 'Processing...'
                   : status === 'verifying'
                   ? 'Verifying...'
                   : `Pay ${priceLabel}`
