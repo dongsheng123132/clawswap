@@ -66,3 +66,17 @@ model AgentEvent {
 
   @@index([userId, createdAt])
 }
+
+model GridCell {
+  id        String   @id @default(cuid())
+  index     Int      @unique
+  color     String   @default("#7C3AED")
+  label     String?
+  ownerId   String?
+  ownerAddr String?
+  price     String   @default("0.01")
+  payMethod String?
+  txHash    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

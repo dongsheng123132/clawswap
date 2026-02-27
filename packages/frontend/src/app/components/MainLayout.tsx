@@ -5,10 +5,11 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import SwapTab from './tabs/SwapTab';
 import AgentTab from './tabs/AgentTab';
 import EarnTab from './tabs/EarnTab';
+import GridTab from './tabs/GridTab';
 import TestnetBanner from './TestnetBanner';
 import { useBalances } from '@/hooks/useBalances';
 
-type TabId = 'swap' | 'agent' | 'earn';
+type TabId = 'swap' | 'agent' | 'earn' | 'grid';
 
 function shortenAddress(addr: string) {
   if (!addr || addr.length < 10) return addr;
@@ -36,7 +37,7 @@ export default function MainLayout() {
         <div className="max-w-[480px] mx-auto px-4 h-14 flex items-center justify-between">
           <span className="font-bold text-lg">OpenClaw</span>
           <nav className="hidden md:flex items-center gap-1">
-            {(['swap', 'agent', 'earn'] as const).map((t) => (
+            {(['swap', 'agent', 'earn', 'grid'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -46,7 +47,7 @@ export default function MainLayout() {
                   ${tab === t ? 'bg-[#7C3AED] text-white' : 'text-zinc-400 hover:text-white'}
                 `}
               >
-                {t === 'swap' ? 'Swap' : t === 'agent' ? 'Agent' : 'Earn'}
+                {t === 'swap' ? 'Swap' : t === 'agent' ? 'Agent' : t === 'earn' ? 'Earn' : 'Grid'}
               </button>
             ))}
           </nav>
@@ -78,12 +79,13 @@ export default function MainLayout() {
         {tab === 'swap' && <SwapTab />}
         {tab === 'agent' && <AgentTab />}
         {tab === 'earn' && <EarnTab />}
+        {tab === 'grid' && <GridTab />}
       </main>
 
       {/* Mobile bottom nav - tabs */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-zinc-800 bg-[#18181B]/95 backdrop-blur z-20">
         <div className="max-w-[480px] mx-auto flex justify-around py-2">
-          {(['swap', 'agent', 'earn'] as const).map((t) => (
+          {(['swap', 'agent', 'earn', 'grid'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -93,7 +95,7 @@ export default function MainLayout() {
                 ${tab === t ? 'bg-[#7C3AED] text-white' : 'text-zinc-400'}
               `}
             >
-              {t === 'swap' ? 'Swap' : t === 'agent' ? 'Agent' : 'Earn'}
+              {t === 'swap' ? 'Swap' : t === 'agent' ? 'Agent' : t === 'earn' ? 'Earn' : 'Grid'}
             </button>
           ))}
         </div>
