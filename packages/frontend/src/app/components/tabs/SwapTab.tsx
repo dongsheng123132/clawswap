@@ -6,17 +6,21 @@ import {
   parseUnits,
   parseAbi,
   encodeFunctionData,
+  createWalletClient,
+  createPublicClient,
+  custom,
+  http,
   type Address,
 } from 'viem';
+import { useWallets } from '@privy-io/react-auth';
 import { useQuote } from '@/hooks/useQuote';
 import { useBalances } from '@/hooks/useBalances';
-import { useSmartWallet } from '@/hooks/useSmartWallet';
-import { getApiUrl } from '@/lib/api';
+import { monadTestnet } from '@/lib/chains';
 import clsx from 'clsx';
 
-const SWAP_ROUTER = '0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900' as Address;
-const WMON = '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A' as Address;
-const USDC_ADDR = '0x534b2f3A21130d7a60830c2Df862319e593943A3' as Address;
+const SWAP_ROUTER = '0x40aaaeb202175c0400554a107da89528ba24647b' as Address;
+const WMON = '0x21101761d8efb6c43de3cf12aab477d41763c210' as Address;
+const USDC_ADDR = '0x54766e965d19e49fbc781ad9beb73bf142d1a319' as Address;
 
 const ERC20_ABI = parseAbi([
   'function approve(address spender, uint256 amount) returns (bool)',
@@ -109,7 +113,8 @@ export default function SwapTab() {
 
   const { quote, loading: quoteLoading } = useQuote(tokenIn, tokenOut, amountIn);
   const { mon, usdc, refresh: refreshBalances } = useBalances();
-  const { kernelClient, smartAccount, address: walletAddress } = useSmartWallet();
+  const { wallets } = useWallets();
+  const eoaAddress = wallets[0]?.address as Address | undefined;
   const balanceIn = tokenIn === 'USDC' ? usdc : mon;
   const balanceOut = tokenOut === 'USDC' ? usdc : mon;
   const insufficientBalance = amountIn && Number(amountIn) > balanceIn;
@@ -119,7 +124,7 @@ export default function SwapTab() {
   }, [refreshBalances]);
 
   const handleSwap = async () => {
-    if (!kernelClient || !smartAccount || !walletAddress || !quote) return;
+    if (!eoaAddress || !quote || !wallets[0]) return;
 
     setSwapToast('sending');
     setTxHash(null);
@@ -130,58 +135,61 @@ export default function SwapTab() {
       const decimalsOut = getTokenDecimals(tokenOut);
       const amountInWei = parseUnits(amountIn, decimalsIn);
       const amountOutWei = parseUnits(quote.amountOut, decimalsOut);
-      const amountOutMinimum = (amountOutWei * 995n) / 1000n;
+      const amountOutMinimum = (amountOutWei * BigInt(995)) / BigInt(1000);
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
       const isNativeIn = tokenIn.toUpperCase() === 'MON';
 
-      const calls: Array<{ to: Address; value: bigint; data: `0x${string}` }> = [];
+      // Use Privy EOA wallet directly
+      await wallets[0].switchChain(10143);
+      const provider = await wallets[0].getEthereumProvider();
+      const walletClient = createWalletClient({
+        chain: monadTestnet,
+        transport: custom(provider),
+      });
+      const publicClient = createPublicClient({
+        chain: monadTestnet,
+        transport: http(monadTestnet.rpcUrls.default.http[0]),
+      });
+      const [account] = await walletClient.getAddresses();
 
+      // Step 1: Approve (if ERC20 input)
       if (!isNativeIn) {
-        calls.push({
-          to: addrIn,
-          value: 0n,
-          data: encodeFunctionData({
-            abi: ERC20_ABI,
-            functionName: 'approve',
-            args: [SWAP_ROUTER, amountInWei],
-          }),
+        setSwapToast('sending');
+        const approveHash = await walletClient.writeContract({
+          address: addrIn,
+          abi: ERC20_ABI,
+          functionName: 'approve',
+          args: [SWAP_ROUTER, amountInWei],
+          account,
         });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
       }
 
-      calls.push({
-        to: SWAP_ROUTER,
-        value: isNativeIn ? amountInWei : 0n,
-        data: encodeFunctionData({
-          abi: SWAP_ROUTER_ABI,
-          functionName: 'exactInputSingle',
-          args: [
-            {
-              tokenIn: addrIn,
-              tokenOut: addrOut,
-              fee: 3000,
-              recipient: walletAddress as Address,
-              deadline,
-              amountIn: amountInWei,
-              amountOutMinimum,
-              sqrtPriceLimitX96: 0n,
-            },
-          ],
-        }),
-      });
-
+      // Step 2: Swap
       setSwapToast('confirming');
-
-      const userOpHash = await kernelClient.sendUserOperation({
-        callData: await smartAccount.encodeCalls(calls),
+      const swapHash = await walletClient.writeContract({
+        address: SWAP_ROUTER,
+        abi: SWAP_ROUTER_ABI,
+        functionName: 'exactInputSingle',
+        args: [
+          {
+            tokenIn: addrIn,
+            tokenOut: addrOut,
+            fee: 3000,
+            recipient: account,
+            deadline,
+            amountIn: amountInWei,
+            amountOutMinimum,
+            sqrtPriceLimitX96: BigInt(0),
+          },
+        ],
+        value: isNativeIn ? amountInWei : BigInt(0),
+        account,
       });
 
-      const receipt = await kernelClient.waitForUserOperationReceipt({
-        hash: userOpHash,
-      });
-
-      const hash = receipt.receipt.transactionHash;
-      console.log('Swap tx:', hash);
-      setTxHash(hash);
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: swapHash });
+      console.log('Swap tx:', receipt.transactionHash);
+      setTxHash(receipt.transactionHash);
       setSwapToast('done');
       setAmountIn('');
       refreshBalances();
@@ -277,7 +285,7 @@ export default function SwapTab() {
           <button
             type="button"
             onClick={handleSwap}
-            disabled={!quote || quoteLoading || !!insufficientBalance}
+            disabled={!quote || quoteLoading || !!insufficientBalance || !eoaAddress}
             className={clsx(
               'w-full font-bold py-4 rounded-2xl text-xl transition-all',
               insufficientBalance && 'bg-zinc-700 text-zinc-500 cursor-not-allowed',

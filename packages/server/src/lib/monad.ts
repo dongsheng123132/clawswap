@@ -26,14 +26,14 @@ export const monadTestnet = defineChain({
 });
 
 // ============ Contract Addresses ============
-// Uniswap V3 on Monad Testnet (verified working)
+// Deployed on Monad Testnet (see packages/contracts/deployed-addresses.json)
 export const CONTRACTS = {
-  WMON: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A' as Address,
-  USDC: '0x534b2f3A21130d7a60830c2Df862319e593943A3' as Address,
-  UNISWAP_FACTORY: '0x204faca1764b154221e35c0d20abb3c525710498' as Address,
-  SWAP_ROUTER: '0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900' as Address,
-  QUOTER_V2: '0x661e93cca42afacb172121ef892830ca3b70f08d' as Address,
-  POSITION_MANAGER: '0x7197e214c0b767cfb76fb734ab638e2c192f4e53' as Address,
+  WMON: '0x21101761d8efb6c43de3cf12aab477d41763c210' as Address,
+  USDC: '0x54766e965d19e49fbc781ad9beb73bf142d1a319' as Address,
+  UNISWAP_FACTORY: '0x41515640cb63fe7a0f19e5dd752557b02bb4f299' as Address,
+  SWAP_ROUTER: '0x40aaaeb202175c0400554a107da89528ba24647b' as Address,
+  QUOTER_V2: '0x5a2e143c3c95d11fe7fa8f19b421150cfedf56ae' as Address,
+  POSITION_MANAGER: '0x493f357a0216bc9eed26bbe431d960aa2ec4a33f' as Address,
 } as const;
 
 // 兼容旧代码的别名

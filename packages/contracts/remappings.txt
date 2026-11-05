@@ -1,4 +1,8 @@
-@uniswap/v3-core/=src/core/
-@uniswap/v3-periphery/=src/periphery/
+@uniswap/v3-core/contracts/=src/core/
+@uniswap/v3-periphery/contracts/=src/periphery/
 @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
 forge-std/=lib/forge-std/src/
+base64-sol/=lib/base64-sol/
+src/interfaces/=src/periphery/interfaces/
+src/base/=src/periphery/base/
+src/libraries/=src/periphery/libraries/

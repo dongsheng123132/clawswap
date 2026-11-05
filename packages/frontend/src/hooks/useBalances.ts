@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { usePublicClient } from 'wagmi';
+import { useWallets } from '@privy-io/react-auth';
 import { formatUnits, parseAbi, type Address } from 'viem';
 import { MONAD_CONTRACTS } from '@/lib/chains';
 import { useSmartWallet } from './useSmartWallet';
@@ -10,7 +11,11 @@ const ERC20_ABI = parseAbi([
 
 export function useBalances() {
   const publicClient = usePublicClient();
-  const { address } = useSmartWallet();
+  const { address: smartAddress } = useSmartWallet();
+  const { wallets } = useWallets();
+  const eoaAddress = wallets[0]?.address;
+  // Prefer AA wallet; fallback to Privy EOA when ZeroDev/AA unavailable
+  const address = smartAddress || eoaAddress;
   const [mon, setMon] = useState<string>('0');
   const [usdc, setUsdc] = useState<string>('0');
   const [loading, setLoading] = useState(false);

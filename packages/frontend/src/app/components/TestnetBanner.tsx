@@ -1,9 +1,24 @@
 'use client';
 
 import { useState } from 'react';
+import { createWalletClient, createPublicClient, custom, http } from 'viem';
+import { useWallets } from '@privy-io/react-auth';
+import { monadTestnet, MONAD_CONTRACTS } from '@/lib/chains';
 
 const MONAD_FAUCET_URL = 'https://faucet.monad.xyz';
-const USDC_FAUCET_URL = 'https://faucet.circle.com';
+
+const USDC_MINT_ABI = [
+  {
+    name: 'mint',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+] as const;
 
 export default function TestnetBanner({
   address,
@@ -15,12 +30,51 @@ export default function TestnetBanner({
   loading?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [minting, setMinting] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
+  const { wallets } = useWallets();
 
   const copyAddress = () => {
     if (address) {
       navigator.clipboard.writeText(address);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleMintUSDC = async () => {
+    const wallet = wallets[0];
+    if (!wallet || !address) {
+      setMintError('请先连接钱包');
+      return;
+    }
+    setMintError(null);
+    setMinting(true);
+    try {
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        chain: monadTestnet,
+        transport: custom(provider),
+      });
+      const [account] = await walletClient.getAddresses();
+      if (!account) throw new Error('No account');
+      const hash = await walletClient.writeContract({
+        address: MONAD_CONTRACTS.USDC,
+        abi: USDC_MINT_ABI,
+        functionName: 'mint',
+        args: [account, BigInt(1000 * 1e6)],
+        account,
+      });
+      const publicClient = createPublicClient({
+        chain: monadTestnet,
+        transport: http(monadTestnet.rpcUrls.default.http[0]),
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      onRefresh();
+    } catch (e: unknown) {
+      setMintError(e instanceof Error ? e.message : '领取失败');
+    } finally {
+      setMinting(false);
     }
   };
 
@@ -53,14 +107,15 @@ export default function TestnetBanner({
         </div>
         <div>
           <p className="text-zinc-500 text-sm mb-2">Step 2: 领取测试 USDC</p>
-          <a
-            href={USDC_FAUCET_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-[#7C3AED] hover:bg-violet-600 text-white text-sm font-medium"
+          <button
+            type="button"
+            onClick={handleMintUSDC}
+            disabled={minting || !wallets?.length}
+            className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-[#7C3AED] hover:bg-violet-600 text-white text-sm font-medium disabled:opacity-50"
           >
-            前往 Circle 水龙头领取 USDC
-          </a>
+            {minting ? '领取中...' : '领取 1000 USDC'}
+          </button>
+          {mintError && <p className="text-red-400 text-sm mt-2">{mintError}</p>}
         </div>
         <div>
           <p className="text-zinc-500 text-sm mb-2">Step 3: 开始交易</p>

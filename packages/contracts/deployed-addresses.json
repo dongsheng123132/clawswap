@@ -1,0 +1,9 @@
+{
+  "WMON": "0x21101761d8efb6c43de3cf12aab477d41763c210",
+  "USDC": "0x54766e965d19e49fbc781ad9beb73bf142d1a319",
+  "Factory": "0x41515640cb63fe7a0f19e5dd752557b02bb4f299",
+  "SwapRouter": "0x40aaaeb202175c0400554a107da89528ba24647b",
+  "QuoterV2": "0x5a2e143c3c95d11fe7fa8f19b421150cfedf56ae",
+  "NFPM": "0x493f357a0216bc9eed26bbe431d960aa2ec4a33f",
+  "Pool": "0x1f5e4785d0eE51D2d5846966804993fCE5eBa30b"
+}
